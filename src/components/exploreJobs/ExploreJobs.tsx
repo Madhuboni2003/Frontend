@@ -13,12 +13,16 @@ import { useAppDispatch, useAppSelector } from "@/lib/hooks";
 import { HiringCompany, JOB_LIST_TABS, JobListTab } from "@/types/GetJobType";
 import { useDebounce } from "@/utils/useDebounce";
 import useExploreJobs from "@/utils/useExploreJobs";
+import useGetUser from "@/utils/useGetUser";
+import useGetUserRoles from "@/utils/useGetUserRoles";
 import useGetHiringCompanies from "@/utils/useGetHiringCompanies";
 import ExploreHero from "./ExploreHero";
 import JobTabs, { JOB_TAB_LABELS } from "./JobTabs";
 import JobsPagination from "./JobsPagination";
 
 const PAGE_SIZE = 12;
+// Only these roles can access job search features.
+const ALLOWED_SEARCH_ROLES = ["admin"];
 
 function isJobListTab(value: string | null): value is JobListTab {
   return !!value && (JOB_LIST_TABS as readonly string[]).includes(value);
@@ -30,6 +34,12 @@ export default function ExploreJobs() {
   const dispatch = useAppDispatch();
   const jwtToken = useAppSelector((state) => state.authJwtToken.value);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Check whether the logged-in user is allowed to search jobs.
+  const { data: userData } = useGetUser(jwtToken);
+  const { data: userRoles } = useGetUserRoles(jwtToken, userData?.id);
+  const canSearch = userRoles?.some((role) => ALLOWED_SEARCH_ROLES.includes(role)) ?? false;
+    
 
   useEffect(() => {
     const token = localStorage.getItem("AuthJwtToken");
@@ -95,15 +105,16 @@ export default function ExploreJobs() {
   const { data: suggestionData, isFetching: suggestionsFetching } = useGetHiringCompanies(
     suggestionQuery,
     6,
-    suggestionQuery.length > 0,
+    canSearch && suggestionQuery.length > 0
   );
+
   // Only show results for real typed text: the "" key is the cached trending list.
   const suggestions = useMemo(
     () => (typed && suggestionQuery ? suggestionData ?? [] : []),
     [typed, suggestionQuery, suggestionData],
   );
   const suggestionsStale = !!typed && (suggestionQuery !== typed || suggestionsFetching);
-  const { data: trending = [] } = useGetHiringCompanies("", 6);
+  const { data: trending = [] } = useGetHiringCompanies("", 6, canSearch);
 
   const pickCompany = (company: HiringCompany) => {
     setQuery(company.name);
@@ -192,18 +203,21 @@ export default function ExploreJobs() {
           </div>
         </header>
 
-        <ExploreHero
-          query={query}
-          onQueryChange={setQuery}
-          onSubmit={() => commitCompany(query.trim())}
-          onClear={clearSearch}
-          onPickCompany={pickCompany}
-          suggestions={suggestions}
-          suggestionsStale={suggestionsStale}
-          suggestionsEnabled={!(pickedCompany && query.trim() === pickedCompany)}
-          trending={trending}
-        />
-
+        {/* Admin-only search and trending companies section */}
+        {canSearch && (
+          <ExploreHero
+            query={query}
+            onQueryChange={setQuery}
+            onSubmit={() => commitCompany(query.trim())}
+            onClear={clearSearch}
+            onPickCompany={pickCompany}
+            suggestions={suggestions}
+            suggestionsStale={suggestionsStale}
+            suggestionsEnabled={!(pickedCompany && query.trim() === pickedCompany)}
+            trending={trending}
+          />
+        )}
+        
         <div className="flex flex-wrap items-center justify-between gap-3">
           <JobTabs
             active={tab}
